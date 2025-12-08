@@ -1,0 +1,17 @@
+# Requirements cho PackingApp
+# Cài đặt: pip install -r requirements.txt
+
+# GUI Framework
+customtkinter>=5.2.0
+
+# HTTP requests để kết nối với Web App
+requests>=2.31.0
+
+# Image processing cho logo
+Pillow>=10.0.0
+
+# Các thư viện khác (nếu có)
+# opencv-python>=4.8.0  # Cho camera (nếu cần)
+# numpy>=1.24.0  # Cho xử lý video (nếu cần)
+
+qreader

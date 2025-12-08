@@ -1,0 +1,11 @@
+{
+  "email_or_phone": "0703942920",
+  "user_id": 3,
+  "is_admin": false,
+  "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIzIiwiZW1haWwiOiJkenVuZ0BnbWFpbC5jb20iLCJwaG9uZSI6IjA3MDM5NDI5MjAiLCJpc19hZG1pbiI6ZmFsc2UsImV4cCI6MTc2NTEwOTk1MiwiaWF0IjoxNzY1MTA2MzUyfQ.jvRss9AvHJybM6JgwDMpPwcLAKTaoTCT8pzahexSmVA",
+  "logged_in_at": "2025-12-07T18:19:18.977947",
+  "key_expires_at": "2026-01-05T22:02:33.174466",
+  "key": "KEY_60F31D7B87AB7F5FB2BA7ABE1F9759D4",
+  "license_status": "active",
+  "license_days_left": 29
+}
