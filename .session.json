@@ -1,11 +1,11 @@
 {
-  "email_or_phone": "admin@packingapp.com",
-  "user_id": 1,
-  "is_admin": true,
-  "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxIiwiZW1haWwiOiJhZG1pbkBwYWNraW5nYXBwLmNvbSIsInBob25lIjoiMDcwMjIyMjM0OCIsImlzX2FkbWluIjp0cnVlLCJleHAiOjE3NjU0NTI3NDcsImlhdCI6MTc2NTQ0OTE0N30.tNPyguCfT5jiEIWiQAgHSKqzQaaz8W3ttrgREKMewn8",
-  "logged_in_at": "2025-12-11T17:32:28.054764",
-  "key_expires_at": "2026-12-10T00:36:05.693862",
-  "key": "KEY_CF9BEC676150BFFBF01A8B63B2E453DC",
+  "email_or_phone": "nguyen@gmail.com",
+  "user_id": 6,
+  "is_admin": false,
+  "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI2IiwiZW1haWwiOiJuZ3V5ZW5AZ21haWwuY29tIiwicGhvbmUiOiIxMjM0NTY3ODkxIiwiaXNfYWRtaW4iOmZhbHNlLCJleHAiOjE3NjU0NzA3MjAsImlhdCI6MTc2NTQ2NzEyMH0.IfMDrhYtSgGTQoGU1yzFI4oBm6y73zEbyjR1aQzd5Uo",
+  "logged_in_at": "2025-12-11T22:32:00.423592",
+  "key_expires_at": "2026-01-10T22:30:19.786435",
+  "key": "KEY_1BB29ACE40DA65465387069C37145ECB",
   "license_status": "active",
-  "license_days_left": 363
+  "license_days_left": 29
 }
