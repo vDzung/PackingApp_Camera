@@ -8,6 +8,7 @@ from . import utils, config
 from .utils import get_video_metadata
 from . import account_widgets
 from . import camera_logic
+import json # Cần thiết để xử lý dữ liệu settings tạm thời
 
 class CameraWidget:
     """A class to hold the UI elements for a single camera."""
@@ -101,6 +102,10 @@ def create_widgets(app):
     app.account_button = ctk.CTkButton(app.sidebar_frame, text="👤 TÀI KHOẢN", 
                                        command=lambda: select_frame(app, "account"), fg_color=utils.COLOR_GREEN_SUCCESS)
     app.account_button.grid(row=3, column=0, padx=20, pady=10, sticky="ew")
+    
+    app.settings_button = ctk.CTkButton(app.sidebar_frame, text="⚙ CÀI ĐẶT", 
+                                       command=lambda: select_frame(app, "settings"), fg_color=utils.COLOR_GRAY_ACCENT)
+    app.settings_button.grid(row=4, column=0, padx=20, pady=10, sticky="ew")
 
     app.exit_button = ctk.CTkButton(app.sidebar_frame, 
                                 text="THOÁT ỨNG DỤNG",
@@ -119,6 +124,7 @@ def create_widgets(app):
     _create_record_frame(app)
     _create_search_frame(app)
     account_widgets._create_account_frame(app)
+    _create_settings_frame(app)
     
     select_frame(app, "record")
 
@@ -130,52 +136,67 @@ def select_frame(app, name):
         else:
             frame.grid_forget()
 
+def refresh_camera_views(app):
+    """
+    Hàm quan trọng: Xóa giao diện camera cũ và vẽ lại dựa trên cấu hình mới.
+    Được gọi khi khởi động app hoặc sau khi Lưu cài đặt.
+    """
+    # 1. Xóa các widget camera cũ trong center_frame
+    for widget in app.camera_center_frame.winfo_children():
+        widget.destroy()
+    
+    app.camera_widgets = {} # Reset danh sách quản lý widget
+
+    # 2. Vẽ lại các camera mới từ app.cameras (đã được reload từ logic)
+    for i, camera in enumerate(app.cameras):
+        widget = CameraWidget(app.camera_center_frame, camera, app)
+        
+        row = i // 2
+        col = i % 2
+        widget.frame.grid(row=row, column=col, padx=10, pady=10, sticky="nsew")
+        app.camera_widgets[camera.index] = widget
+
 def _create_record_frame(app):
     """Khung Ghi hình với layout cho nhiều camera."""
     app.record_frame = ctk.CTkFrame(app.main_content_frame, fg_color=utils.COLOR_BACKGROUND)
     app.frames["record"] = app.record_frame
     app.record_frame.grid_columnconfigure(0, weight=1)
-    app.record_frame.grid_rowconfigure(1, weight=1)
+    app.record_frame.grid_rowconfigure(1, weight=1) # Row 1 for camera views
 
     # --- Top Control Frame ---
     top_frame = ctk.CTkFrame(app.record_frame, fg_color="transparent")
     top_frame.grid(row=0, column=0, padx=10, pady=10, sticky="ew")
-    top_frame.grid_columnconfigure(0, weight=1)
-    top_frame.grid_columnconfigure(1, weight=0) # Give the button column a fixed width
+    top_frame.grid_columnconfigure(0, weight=1) # Allow the button to push to the right
 
-    app.log_label = ctk.CTkLabel(top_frame, text="Sẵn sàng. Vui lòng đưa mã QR vào camera để bắt đầu.", 
-                                 text_color="#666", wraplength=700, justify="left")
-    app.log_label.grid(row=0, column=0, sticky="ew")
+    # app.log_label đã được loại bỏ theo yêu cầu
 
     app.stop_button = ctk.CTkButton(top_frame, text="■ DỪNG TẤT CẢ GHI HÌNH", 
                                     command=lambda: camera_logic._stop_all_recordings(app), 
                                     fg_color=utils.COLOR_RED_EXIT, 
                                     font=ctk.CTkFont(size=14, weight="bold"))
-    app.stop_button.grid(row=0, column=1, padx=(10, 0), sticky="e")
+    app.stop_button.grid(row=0, column=0, padx=(10, 0), sticky="e") # Di chuyển sang column 0
     app.stop_button.configure(state="disabled")
 
-    # --- Cameras Grid Frame ---
-    app.camera_grid_frame = ctk.CTkScrollableFrame(app.record_frame, fg_color="transparent")
-    app.camera_grid_frame.grid(row=1, column=0, padx=10, pady=10, sticky="nsew")
+    # --- Cameras Container Frame (để căn giữa) ---
+    # Frame này sẽ co lại theo nội dung và được pack vào giữa.
+    camera_container = ctk.CTkFrame(app.record_frame, fg_color="transparent")
+    camera_container.grid(row=1, column=0, sticky="", padx=10, pady=10)
     
     app.camera_widgets = {} # Dictionary to hold CameraWidget instances
 
     if not hasattr(app, 'cameras') or not app.cameras:
-        ctk.CTkLabel(app.camera_grid_frame, text="Không tìm thấy camera nào trong 'cameras.json'.",
+        ctk.CTkLabel(camera_container, text="Không tìm thấy camera nào trong 'cameras.json'.",
                      font=ctk.CTkFont(size=18, weight="bold"), text_color="red").pack(expand=True)
         return
 
-    # Determine grid layout (e.g., 2 columns for up to 4 cams, 3 for more)
-    num_cameras = len(app.cameras)
-    num_cols = 2 if num_cameras <= 4 else 3
-    
-    for i, camera in enumerate(app.cameras):
-        row, col = divmod(i, num_cols)
-        app.camera_grid_frame.grid_columnconfigure(col, weight=1)
-        
-        widget = CameraWidget(app.camera_grid_frame, camera, app)
-        widget.frame.grid(row=row, column=col, padx=5, pady=5, sticky="nsew")
-        app.camera_widgets[camera.index] = widget
+    # --- Center Alignment Frame ---
+    # Frame này dùng để chứa các camera và được đặt vào giữa `camera_container`
+    # Lưu reference vào app để hàm refresh có thể truy cập
+    app.camera_center_frame = ctk.CTkFrame(camera_container, fg_color="transparent")
+    app.camera_center_frame.pack(expand=True)
+
+    # Gọi hàm vẽ giao diện lần đầu
+    refresh_camera_views(app)
 
 def _create_search_frame(app):
     """Khung Tra cứu."""
@@ -192,7 +213,7 @@ def _create_search_frame(app):
     search_widget_frame.grid_columnconfigure(1, weight=1)
 
     ctk.CTkLabel(search_widget_frame, text="Nhập Mã Đơn Hàng:", font=ctk.CTkFont(size=16)).grid(row=0, column=0, padx=10, pady=10, sticky="w")
-    app.search_entry = ctk.CTkEntry(search_widget_frame, width=300, placeholder_text="Ví dụ: SPXVN...")
+    app.search_entry = ctk.CTkEntry(search_widget_frame, width=300, placeholder_text="Ví dụ: SPX...")
     app.search_entry.grid(row=0, column=1, padx=10, pady=10, sticky="ew")
 
     action_buttons_frame = ctk.CTkFrame(search_widget_frame, fg_color="transparent")
@@ -295,3 +316,131 @@ def create_list_buttons(app, file_names):
                       command=lambda name=file_name: utils.delete_video(app, name, create_list_buttons), 
                       width=90, height=25, fg_color=utils.COLOR_RED_EXIT).pack(side="left")
 
+def _create_settings_frame(app):
+    """Khung Cài đặt Camera (Mới)."""
+    app.settings_frame = ctk.CTkFrame(app.main_content_frame, fg_color=utils.COLOR_BACKGROUND)
+    app.frames["settings"] = app.settings_frame
+    app.settings_frame.grid_columnconfigure(0, weight=1)
+
+    ctk.CTkLabel(app.settings_frame, text="CẤU HÌNH CAMERA", 
+                 font=ctk.CTkFont(size=24, weight="bold"), text_color="#333").pack(pady=(20, 10))
+
+    # Container chính
+    content_frame = ctk.CTkScrollableFrame(app.settings_frame, fg_color="white", corner_radius=10, width=600, height=500)
+    content_frame.pack(pady=10, padx=20, fill="both", expand=True)
+
+    # --- Load Settings hiện tại ---
+    current_settings = camera_logic.get_camera_settings()
+    
+    # 1. Chọn loại Camera
+    ctk.CTkLabel(content_frame, text="Loại Nguồn Camera:", font=ctk.CTkFont(size=16, weight="bold")).pack(anchor="w", padx=10, pady=(10, 5))
+    
+    camera_type_var = ctk.StringVar(value=current_settings.get("camera_type", "WEBCAM"))
+    
+    def on_type_change():
+        if camera_type_var.get() == "WEBCAM":
+            webcam_frame.pack(fill="x", padx=10, pady=5)
+            rtsp_frame.pack_forget()
+        else:
+            webcam_frame.pack_forget()
+            rtsp_frame.pack(fill="x", padx=10, pady=5)
+
+    type_frame = ctk.CTkFrame(content_frame, fg_color="transparent")
+    type_frame.pack(fill="x", padx=10)
+    ctk.CTkRadioButton(type_frame, text="Webcam (USB)", variable=camera_type_var, value="WEBCAM", command=on_type_change).pack(side="left", padx=10)
+    ctk.CTkRadioButton(type_frame, text="Camera IP (RTSP)", variable=camera_type_var, value="RTSP", command=on_type_change).pack(side="left", padx=10)
+
+    # 2. Cấu hình Webcam
+    webcam_frame = ctk.CTkFrame(content_frame, border_width=1, border_color="#ddd")
+    ctk.CTkLabel(webcam_frame, text="Chỉ số Webcam (Mặc định là 0):").pack(side="left", padx=10, pady=10)
+    webcam_index_entry = ctk.CTkEntry(webcam_frame, width=50)
+    webcam_index_entry.insert(0, str(current_settings.get("webcam_index", 0)))
+    webcam_index_entry.pack(side="left", padx=10)
+
+    # 3. Cấu hình RTSP (Danh sách động)
+    rtsp_frame = ctk.CTkFrame(content_frame, border_width=1, border_color="#ddd")
+    ctk.CTkLabel(rtsp_frame, text="Danh sách Camera RTSP:", font=ctk.CTkFont(weight="bold")).pack(anchor="w", padx=10, pady=5)
+    
+    rtsp_list_container = ctk.CTkFrame(rtsp_frame, fg_color="transparent")
+    rtsp_list_container.pack(fill="x", padx=5, pady=5)
+    
+    rtsp_entries = [] # List chứa các widget entry để lấy dữ liệu sau này
+
+    def add_rtsp_row(name="", url=""):
+        row_frame = ctk.CTkFrame(rtsp_list_container, fg_color="transparent")
+        row_frame.pack(fill="x", pady=2)
+        
+        ctk.CTkLabel(row_frame, text="Tên:").pack(side="left", padx=2)
+        name_entry = ctk.CTkEntry(row_frame, width=100)
+        name_entry.insert(0, name)
+        name_entry.pack(side="left", padx=2)
+        
+        ctk.CTkLabel(row_frame, text="URL:").pack(side="left", padx=2)
+        url_entry = ctk.CTkEntry(row_frame, width=300)
+        url_entry.insert(0, url)
+        url_entry.pack(side="left", padx=2, fill="x", expand=True)
+        
+        del_btn = ctk.CTkButton(row_frame, text="X", width=30, fg_color=utils.COLOR_RED_EXIT,
+                                command=lambda: delete_rtsp_row(row_frame, name_entry, url_entry))
+        del_btn.pack(side="left", padx=5)
+        
+        rtsp_entries.append({"frame": row_frame, "name": name_entry, "url": url_entry})
+
+    def delete_rtsp_row(frame, name_entry, url_entry):
+        frame.destroy()
+        # Xóa khỏi danh sách quản lý
+        for item in rtsp_entries:
+            if item["name"] == name_entry and item["url"] == url_entry:
+                rtsp_entries.remove(item)
+                break
+
+    # Load dữ liệu cũ vào list
+    saved_rtsp_list = current_settings.get("rtsp_list", [])
+    # Tương thích ngược
+    if not saved_rtsp_list and current_settings.get("rtsp_url"):
+        saved_rtsp_list = [{"name": "Camera 1", "url": current_settings.get("rtsp_url")}]
+        
+    for item in saved_rtsp_list:
+        add_rtsp_row(item.get("name", ""), item.get("url", ""))
+        
+    # Nút thêm dòng
+    ctk.CTkButton(rtsp_frame, text="+ Thêm Camera", command=lambda: add_rtsp_row(f"Camera {len(rtsp_entries)+1}", ""),
+                  fg_color=utils.COLOR_BLUE_ACTION, height=30).pack(pady=10)
+
+    # Trigger hiển thị ban đầu
+    on_type_change()
+
+    # --- Nút Lưu ---
+    def save_settings():
+        new_settings = {
+            "camera_type": camera_type_var.get(),
+            "webcam_index": int(webcam_index_entry.get()) if webcam_index_entry.get().isdigit() else 0,
+            "reconnect_delay": 5
+        }
+        
+        # Thu thập RTSP list
+        new_rtsp_list = []
+        for item in rtsp_entries:
+            name = item["name"].get().strip()
+            url = item["url"].get().strip()
+            if url: # Chỉ lưu nếu có URL
+                new_rtsp_list.append({"name": name, "url": url})
+        
+        new_settings["rtsp_list"] = new_rtsp_list
+        
+        # Lưu và khởi động lại
+        if camera_logic.save_camera_settings(new_settings):
+            # Gọi hàm restart bên camera_logic
+            # Lưu ý: restart_cameras cần được gọi cẩn thận để tránh treo UI
+            # Ở đây ta set cờ hoặc gọi trực tiếp nếu logic cho phép
+            camera_logic.restart_cameras(app)
+            
+            # QUAN TRỌNG: Vẽ lại giao diện camera ngay lập tức
+            refresh_camera_views(app)
+            
+            ctk.CTkLabel(app.settings_frame, text="Đã lưu và khởi động lại Camera!", text_color="green").pack()
+            # Chuyển về màn hình record
+            app.after(1500, lambda: select_frame(app, "record"))
+
+    ctk.CTkButton(app.settings_frame, text="LƯU CẤU HÌNH & KHỞI ĐỘNG LẠI", 
+                  command=save_settings, fg_color=utils.COLOR_GREEN_SUCCESS, height=50, font=ctk.CTkFont(size=16, weight="bold")).pack(pady=20, padx=20, fill="x")

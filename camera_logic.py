@@ -11,6 +11,9 @@ import winsound
 from qreader import QReader # Import the new, powerful QR detector
 from . import utils, config
 
+# Đường dẫn file cài đặt dùng chung
+SETTINGS_FILE = r".\camera_settings.json"
+
 # =====================================================================
 # Frame Grabber Thread (Unchanged)
 # =====================================================================
@@ -38,8 +41,9 @@ class Camera:
         self.app = app
         self.id = camera_info.get('id', index)
         self.name = camera_info.get('name', f"Camera {index + 1}")
-        self.rtsp_url = camera_info.get('rtsp_url')
+        self.source = camera_info.get('source') # Có thể là URL (str) hoặc Index (int)
         self.index = index
+        self.is_active = True  # Cờ kiểm soát vòng đời của luồng camera
         self.is_recording = False
         self.order_id = None
         self.video_writer = None
@@ -51,6 +55,8 @@ class Camera:
         self.frame_lock = threading.Lock()
         self.record_thread = None
         self.grabber_thread = None
+        self.last_warning_time = None
+        self.last_warning_order_id = None
 
     def release(self):
         """Release camera resources."""
@@ -58,47 +64,152 @@ class Camera:
             self.preview_cap.release()
             print(f"[CAM {self.name}] Preview capture released.")
 
-def load_cameras_from_json(app):
-    """Loads camera configurations from cameras.json."""
+def load_cameras_from_settings(app):
+    """
+    Loads camera configurations from camera_settings.json.
+    Hỗ trợ chuyển đổi giữa Webcam và danh sách RTSP.
+    """
     try:
-        base_dir = os.path.dirname(os.path.abspath(__file__))
-        cameras_json_path = os.path.join(base_dir, 'cameras.json')
-        with open(cameras_json_path, 'r', encoding='utf-8') as f:
-            cameras_data = json.load(f)
-        if not isinstance(cameras_data, list):
-            print("[ERROR] cameras.json should contain a list of camera objects.")
-            return []
+        if not os.path.exists(SETTINGS_FILE):
+            print(f"[WARN] {SETTINGS_FILE} not found. Creating default.")
+            default_settings = {
+                "camera_type": "WEBCAM",
+                "webcam_index": 0,
+                "rtsp_list": [],
+                "reconnect_delay": 5
+            }
+            save_camera_settings(default_settings)
+            
+        with open(SETTINGS_FILE, 'r', encoding='utf-8') as f:
+            settings = json.load(f)
+            
         camera_objects = []
-        seen_ids = set()
-        for i, cam_info in enumerate(cameras_data):
-            cam_id = cam_info.get('id')
-            if cam_id in seen_ids:
-                print(f"[WARNING] Duplicate camera ID '{cam_id}' found. Assigning a unique index {i} instead.")
-                cam_info['id'] = i
-            if cam_id is not None:
-                seen_ids.add(cam_id)
-            camera_objects.append(Camera(app, cam_info, i))
+        camera_type = settings.get("camera_type", "WEBCAM")
+        
+        if camera_type == "RTSP":
+            rtsp_list = settings.get("rtsp_list")
+            # Hỗ trợ tương thích ngược: Nếu không có rtsp_list, thử đọc rtsp_url cũ
+            if rtsp_list is None:
+                old_url = settings.get("rtsp_url")
+                if old_url:
+                    rtsp_list = [{"name": "Camera 1", "url": old_url}]
+                else:
+                    rtsp_list = []
+
+            for i, item in enumerate(rtsp_list):
+                cam_info = {
+                    "id": i,
+                    "name": item.get("name", f"Camera {i+1}"),
+                    "source": item.get("url")
+                }
+                camera_objects.append(Camera(app, cam_info, i))
+        else:
+            # WEBCAM Mode
+            idx = settings.get("webcam_index", 0)
+            cam_info = {
+                "id": 0,
+                "name": "Webcam",
+                "source": int(idx)
+            }
+            camera_objects.append(Camera(app, cam_info, 0))
+            
         return camera_objects
-    except FileNotFoundError:
-        print("[ERROR] cameras.json not found. Please create it.")
-        return []
-    except json.JSONDecodeError:
-        print("[ERROR] Could not decode cameras.json. Please check its format.")
-        return []
+
     except Exception as e:
-        print(f"[ERROR] An unexpected error occurred while loading cameras: {e}")
+        print(f"[ERROR] Error loading settings: {e}")
         return []
+
+def get_camera_settings():
+    """
+    Đọc và trả về toàn bộ cấu hình hiện tại.
+    Dùng hàm này để hiển thị dữ liệu lên giao diện Cài đặt.
+    """
+    try:
+        with open(SETTINGS_FILE, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+def save_camera_settings(settings_data):
+    """
+    Lưu cấu hình camera vào file JSON.
+    Hàm này được gọi từ giao diện Cài đặt khi người dùng nhấn 'Lưu'.
+    """
+    try:
+        with open(SETTINGS_FILE, 'w', encoding='utf-8') as f:
+            json.dump(settings_data, f, indent=4)
+        print("[SETTINGS] Đã lưu cấu hình thành công.")
+        return True
+    except Exception as e:
+        print(f"[SETTINGS] Lỗi khi lưu cấu hình: {e}")
+        return False
+
+# Alias để tương thích ngược nếu cần
+load_cameras_from_json = load_cameras_from_settings
 
 def start_camera_threads(app):
     """Khởi động các luồng cho từng camera đã được load trước đó."""
     if not app.cameras:
-        app.after(0, lambda: app.log_label.configure(text="Lỗi: Không có camera nào được tải để bắt đầu luồng.", text_color="red"))
+        error_msg = "Lỗi: Không có camera nào được tải để bắt đầu luồng."
+        if hasattr(app, 'log_label') and app.log_label.winfo_exists():
+            app.after(0, lambda: app.log_label.configure(text=error_msg, text_color="red"))
+        else:
+            print(f"[GUI ERROR] {error_msg}")
         return
     app.camera_threads = []
     for camera in app.cameras:
         thread = threading.Thread(target=_camera_feed_loop, args=(app, camera), daemon=True)
         app.camera_threads.append(thread)
         thread.start()
+
+def restart_cameras(app):
+    """
+    Dừng toàn bộ camera hiện tại, tải lại cấu hình và khởi động lại.
+    Được gọi sau khi người dùng thay đổi cài đặt.
+    """
+    print("[SYSTEM] Đang khởi động lại hệ thống camera...")
+    # 1. Dừng ghi hình nếu đang ghi
+    _stop_all_recordings(app)
+    
+    # 2. Dừng các luồng camera (logic này phụ thuộc vào việc app.is_running được xử lý thế nào, 
+    # ở đây ta giả định set cờ tạm thời hoặc chờ luồng kết thúc nếu có cơ chế stop riêng)
+    # Đánh dấu is_active = False để luồng cũ tự thoát vòng lặp
+    for cam in app.cameras:
+        cam.is_active = False
+        cam.release()
+    
+    # 3. Tải lại cấu hình mới
+    app.cameras = load_cameras_from_settings(app)
+    
+    # 4. Khởi động lại luồng
+    start_camera_threads(app)
+
+def _draw_overlay(frame, text_left, text_right):
+    """Vẽ overlay thông tin (Mã đơn, Thời gian) lên frame."""
+    if frame is None: return
+
+    h, w = frame.shape[:2]
+    FONT = cv2.FONT_HERSHEY_SIMPLEX
+    FONT_SCALE = 0.7
+    FONT_THICKNESS = 2
+    TEXT_COLOR = (255, 255, 255)
+    BG_COLOR = (0, 0, 0)
+    PADDING = 5
+    
+    # Draw Left Text (Order ID)
+    if text_left:
+        (tw, th), baseline = cv2.getTextSize(text_left, FONT, FONT_SCALE, FONT_THICKNESS)
+        x, y = 10, 30
+        cv2.rectangle(frame, (x - PADDING, y - th - PADDING), (x + tw + PADDING, y + baseline + PADDING), BG_COLOR, -1)
+        cv2.putText(frame, text_left, (x, y), FONT, FONT_SCALE, TEXT_COLOR, FONT_THICKNESS, cv2.LINE_AA)
+
+    # Draw Right Text (Timestamp)
+    if text_right:
+        (tw, th), baseline = cv2.getTextSize(text_right, FONT, FONT_SCALE, FONT_THICKNESS)
+        x = w - tw - 10
+        y = 30
+        cv2.rectangle(frame, (x - PADDING, y - th - PADDING), (x + tw + PADDING, y + baseline + PADDING), BG_COLOR, -1)
+        cv2.putText(frame, text_right, (x, y), FONT, FONT_SCALE, TEXT_COLOR, FONT_THICKNESS, cv2.LINE_AA)
 
 def _camera_feed_loop(app, camera):
     """
@@ -109,22 +220,29 @@ def _camera_feed_loop(app, camera):
     """
     # 1. Initialize the QReader with performance optimizations
     # 'n' model is faster, and min_prob filters weak detections.
-    qreader = QReader(model_size='n', min_prob=0.5)
+    qreader = QReader(model_size='n', min_confidence=0.5)
 
     # 2. Set scan interval to avoid processing every frame
     scan_interval = max(1, config.FPS // 5)  # Scan ~5 times per second
     frame_counter = 0
 
-    while app.is_running:
+    while app.is_running and camera.is_active:
         # --- Connection Management ---
         if camera.preview_cap is None or not camera.preview_cap.isOpened():
             with camera.frame_lock:
                 camera.frame = None
-            print(f"[CAM {camera.name}] Đang kết nối tới: {camera.rtsp_url}")
+            print(f"[CAM {camera.name}] Đang kết nối tới nguồn: {camera.source}")
             app.after(0, lambda: update_camera_status(app, camera, "Đang kết nối...", utils.COLOR_GRAY_ACCENT))
-            camera.preview_cap = cv2.VideoCapture(camera.rtsp_url, cv2.CAP_FFMPEG)
+            
+            # Xử lý kết nối dựa trên loại nguồn (RTSP URL hoặc Webcam Index)
+            if isinstance(camera.source, str):
+                os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "rtsp_transport;tcp" # Tối ưu cho RTSP
+                camera.preview_cap = cv2.VideoCapture(camera.source, cv2.CAP_FFMPEG)
+            else:
+                camera.preview_cap = cv2.VideoCapture(camera.source, cv2.CAP_DSHOW)
+                
             if not camera.preview_cap.isOpened():
-                app.after(0, lambda: update_camera_status(app, camera, "Lỗi kết nối", utils.COLOR_RED_EXIT))
+                app.after(0, lambda: update_camera_status(app, camera, "Lỗi kết nối: Kiểm tra URL/Mạng", utils.COLOR_RED_EXIT))
                 print(f"[CAM {camera.name}] Lỗi: không thể kết nối tới luồng.")
                 time.sleep(5) # Wait before retrying
                 continue
@@ -162,12 +280,17 @@ def _camera_feed_loop(app, camera):
             decoded_qrs = qreader.detect_and_decode(image=frame_roi)
 
             # detect_and_decode returns a tuple of strings (or None if nothing found)
-            if decoded_qrs:
+            if decoded_qrs and decoded_qrs[0]:
                 order_id = decoded_qrs[0].strip()
                 # Schedule the business logic to run on the main thread
                 app.after(0, lambda: _handle_auto_switch_for_camera(app, camera, order_id))
 
         # --- GUI Update with Visual Feedback ---
+        # Draw overlay info if recording
+        if camera.is_recording:
+            timestamp_str = datetime.datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+            _draw_overlay(frame_to_process, camera.order_id, timestamp_str)
+
         # Resize frame for display
         preview_frame = cv2.resize(frame_to_process, (config.CAMERA_PREVIEW_WIDTH, config.CAMERA_PREVIEW_HEIGHT))
 
@@ -202,6 +325,14 @@ def _start_recording_for_camera(app, camera, order_id):
     file_name = f"{order_id}.avi"
     file_path = os.path.join(utils.OUTPUT_DIR, file_name)
     if os.path.exists(file_path):
+        # Kiểm tra cooldown 5 giây cho cảnh báo trùng lặp
+        current_time = datetime.datetime.now()
+        if camera.last_warning_order_id == order_id and camera.last_warning_time:
+            if (current_time - camera.last_warning_time).total_seconds() < 5:
+                return False
+
+        camera.last_warning_order_id = order_id
+        camera.last_warning_time = current_time
         update_camera_status(app, camera, f"Lỗi: Đơn hàng {order_id} đã tồn tại", utils.COLOR_RED_EXIT)
         app.after(0, lambda: _play_audio('DonHangTonTai.wav'))
         return False
@@ -242,6 +373,10 @@ def _record_loop(app, camera):
                 frame_to_write = camera.frame.copy()
         if frame_to_write is not None:
             try:
+                # Draw overlay info on recorded frame
+                timestamp_str = datetime.datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+                _draw_overlay(frame_to_write, camera.order_id, timestamp_str)
+
                 if camera.video_writer and camera.video_writer.isOpened():
                     camera.video_writer.write(frame_to_write)
                 else:
@@ -350,9 +485,8 @@ def _handle_auto_switch_for_camera(app, camera, new_order_id):
              print(f"[CAM {camera.name}] Bỏ qua quét lặp lại cho mã {new_order_id} (cooldown).")
              return
     if camera.is_recording and camera.order_id == new_order_id:
-        print(f"[CAM {camera.name}] Quét lại mã '{new_order_id}'. Dừng ghi hình.")
-        app.after(0, lambda: _play_audio('KetThucGhiHinh.wav'))
-        _stop_recording_for_camera(app, camera)
+        # Logic mới: Nếu quét lại đúng mã đơn hàng đang ghi -> BỎ QUA (Tiếp tục ghi hình)
+        # Chỉ cập nhật thời gian quét để tránh xử lý lặp lại quá nhanh trong vòng lặp
         camera.last_scan_time = datetime.datetime.now()
         return
     with app.lock:
@@ -408,7 +542,10 @@ def _update_cleanup_log(app, count, size_mb):
     else:
         log_text = "[DỌN DẸP] Không tìm thấy file nào cần xóa."
         color = utils.COLOR_GRAY_ACCENT
-    app.log_label.configure(text=log_text, text_color=color)
+    if hasattr(app, 'log_label') and app.log_label.winfo_exists():
+        app.log_label.configure(text=log_text, text_color=color)
+    else:
+        print(f"Cleanup Log: {log_text}") # Fallback to print if log_label is removed
 
 CLEANUP_INTERVAL_SECONDS = 24 * 60 * 60
 
