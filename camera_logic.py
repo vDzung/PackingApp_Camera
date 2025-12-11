@@ -291,8 +291,9 @@ def _camera_feed_loop(app, camera):
             timestamp_str = datetime.datetime.now().strftime("%d/%m/%Y %H:%M:%S")
             _draw_overlay(frame_to_process, camera.order_id, timestamp_str)
 
-        # Resize frame for display
-        preview_frame = cv2.resize(frame_to_process, (config.CAMERA_PREVIEW_WIDTH, config.CAMERA_PREVIEW_HEIGHT))
+        # KHÔNG resize cứng ở đây nữa để giữ độ phân giải gốc cho giao diện tự xử lý
+        # preview_frame = cv2.resize(frame_to_process, (config.CAMERA_PREVIEW_WIDTH, config.CAMERA_PREVIEW_HEIGHT))
+        preview_frame = frame_to_process.copy()
 
         # Calculate ROI coordinates for the resized preview frame to draw a guide box.
         preview_h, preview_w, _ = preview_frame.shape

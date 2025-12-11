@@ -11,28 +11,30 @@ def _create_account_frame(app):
     app.account_frame = ctk.CTkFrame(app.main_content_frame, fg_color=utils.COLOR_BACKGROUND)
     app.frames["account"] = app.account_frame
     app.account_frame.grid_columnconfigure(0, weight=1)
+    app.account_frame.grid_rowconfigure(1, weight=1) # Cho phép mở rộng chiều dọc
     
     # Tiêu đề
     title_label = ctk.CTkLabel(
         app.account_frame,
         text="👤 THÔNG TIN TÀI KHOẢN",
-        font=ctk.CTkFont(size=24, weight="bold"),
+        font=ctk.CTkFont(size=28, weight="bold"),
         text_color="#333"
     )
-    title_label.grid(row=0, column=0, pady=(20, 30), sticky="n")
+    title_label.grid(row=0, column=0, pady=(30, 20), sticky="n")
     
     # Container chính
     main_container = ctk.CTkFrame(app.account_frame, fg_color="white", corner_radius=15)
-    main_container.grid(row=1, column=0, padx=50, pady=20, sticky="nsew")
+    main_container.grid(row=1, column=0, padx=40, pady=(0, 20), sticky="nsew")
     main_container.grid_rowconfigure(0, weight=1)
+    main_container.grid_columnconfigure(0, weight=1)
     
     # Nội dung
-    content_frame = ctk.CTkFrame(main_container, fg_color="transparent")
-    content_frame.grid(row=0, column=0, sticky="nsew", padx=30, pady=30)
+    content_frame = ctk.CTkScrollableFrame(main_container, fg_color="transparent")
+    content_frame.grid(row=0, column=0, sticky="nsew", padx=20, pady=20)
     
     # Button container
     button_container = ctk.CTkFrame(app.account_frame, fg_color="transparent")
-    button_container.grid(row=2, column=0, pady=(10, 20), sticky="s")
+    button_container.grid(row=2, column=0, pady=(0, 30), sticky="s")
     
     # Hàm để cập nhật thông tin
     def update_account_info():
@@ -386,8 +388,9 @@ def _create_account_frame(app):
         text="🔄 Làm mới",
         command=update_account_info,
         fg_color=utils.COLOR_BLUE_ACTION,
-        width=150,
-        height=35
+        width=200,
+        height=50,
+        font=ctk.CTkFont(size=16, weight="bold")
     )
     refresh_button.pack(side="left", padx=(0, 10))
     
@@ -520,11 +523,11 @@ def _create_account_frame(app):
         command=handle_logout,
         fg_color=utils.COLOR_RED_EXIT,
         hover_color="#CC3329",
-        width=150,
-        height=35
+        width=200,
+        height=50,
+        font=ctk.CTkFont(size=16, weight="bold")
     )
     logout_button.pack(side="left")
     
     # Cập nhật thông tin lần đầu
     update_account_info()
-

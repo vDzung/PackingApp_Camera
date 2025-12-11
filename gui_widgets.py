@@ -20,8 +20,8 @@ class CameraWidget:
 
         self.video_label = ctk.CTkLabel(self.frame, text="Đang kết nối...",
                                         fg_color="#333", text_color="white",
-                                        width=config.CAMERA_PREVIEW_WIDTH // 2,
-                                        height=config.CAMERA_PREVIEW_HEIGHT // 2)
+                                        width=config.CAMERA_PREVIEW_WIDTH,
+                                        height=config.CAMERA_PREVIEW_HEIGHT)
         self.video_label.pack(pady=5, padx=5, expand=True, fill="both")
 
         self.status_label = ctk.CTkLabel(self.frame, text="Trạng thái: Đang chờ", text_color="#555")
@@ -34,22 +34,37 @@ class CameraWidget:
         self.stop_button.pack_forget() # Hide by default
 
 def update_image_frame(app, frame, camera):
-    """Updates the image frame for a specific camera widget."""
+    """Updates the image frame for a specific camera widget with dynamic resizing."""
     try:
         if camera.index in app.camera_widgets:
             widget = app.camera_widgets[camera.index]
             
-            # Resize frame for the smaller widget view
+            # Lấy số lượng camera để quyết định kích thước hiển thị
+            num_cams = len(app.cameras)
             h, w, _ = frame.shape
             aspect_ratio = w / h
-            new_height = config.CAMERA_PREVIEW_HEIGHT // 2
+            
+            # Lấy kích thước màn hình để tính toán giới hạn hiển thị tối ưu
+            screen_height = app.winfo_screenheight()
+            available_height = screen_height - 250 # Trừ khoảng header/footer
+
+            # --- TÍNH TOÁN KÍCH THƯỚC MỤC TIÊU (TARGET SIZE) ---
+            # Thay vì dùng config cố định, ta set kích thước dựa trên bố cục
+            if num_cams == 1:
+                # Chế độ 1 Camera: Tự động tính toán để to nhất có thể (Max 960p)
+                target_height = min(960, available_height)
+            elif num_cams == 2:
+                # Chế độ 2 Camera: Chia đôi màn hình (Max 600p)
+                target_height = min(600, available_height)
+            else:
+                # Chế độ nhiều Camera (Grid): Dùng kích thước chuẩn để tiết kiệm tài nguyên
+                target_height = config.CAMERA_PREVIEW_HEIGHT # Thường là 480
+            
+            new_height = target_height
             new_width = int(new_height * aspect_ratio)
 
-            # Ensure the new width doesn't exceed the widget's max width
-            max_width = config.CAMERA_PREVIEW_WIDTH // 2
-            if new_width > max_width:
-                new_width = max_width
-                new_height = int(new_width / aspect_ratio)
+            # Không giới hạn max_width cứng nhắc nữa để hình ảnh có thể phóng to
+            # CTkImage sẽ tự scale xuống nếu container nhỏ hơn, nhưng ta cần source to để nó nét.
 
             resized_frame = utils.resize_frame(frame, new_width, new_height)
 
@@ -147,13 +162,44 @@ def refresh_camera_views(app):
     
     app.camera_widgets = {} # Reset danh sách quản lý widget
 
+    # --- TÍNH TOÁN BỐ CỤC LƯỚI (GRID LAYOUT) ---
+    num_cams = len(app.cameras)
+    
+    # Xác định số cột dựa trên số lượng camera
+    if num_cams == 1:
+        columns = 1
+    elif num_cams == 2:
+        columns = 2 # 2 Camera nằm ngang
+    elif num_cams <= 4:
+        columns = 2 # 3-4 Camera: Lưới 2x2
+    else:
+        columns = 3 # 5+ Camera: Lưới 3 cột (ví dụ 2 hàng x 3 cột)
+
+    # Reset cấu hình grid cũ của frame chứa camera
+    for i in range(10): # Reset một số lượng hàng/cột dự phòng
+        app.camera_center_frame.grid_columnconfigure(i, weight=0)
+        app.camera_center_frame.grid_rowconfigure(i, weight=0)
+
+    # Cấu hình weight cho các cột mới để chúng giãn đều nhau
+    for c in range(columns):
+        app.camera_center_frame.grid_columnconfigure(c, weight=1)
+
     # 2. Vẽ lại các camera mới từ app.cameras (đã được reload từ logic)
     for i, camera in enumerate(app.cameras):
         widget = CameraWidget(app.camera_center_frame, camera, app)
         
-        row = i // 2
-        col = i % 2
-        widget.frame.grid(row=row, column=col, padx=10, pady=10, sticky="nsew")
+        # Tính toán vị trí row/col
+        row = i // columns
+        col = i % columns
+        
+        # Padding: Nếu chỉ có 1 cam thì ít padding để to nhất, nhiều cam thì tăng khoảng cách
+        pad_val = 5 if num_cams > 1 else 0
+        
+        widget.frame.grid(row=row, column=col, padx=pad_val, pady=pad_val, sticky="nsew")
+        
+        # Cấu hình weight cho hàng hiện tại để giãn chiều dọc
+        app.camera_center_frame.grid_rowconfigure(row, weight=1) 
+        
         app.camera_widgets[camera.index] = widget
 
 def _create_record_frame(app):
@@ -177,6 +223,17 @@ def _create_record_frame(app):
     app.stop_button.grid(row=0, column=0, padx=(10, 0), sticky="e") # Di chuyển sang column 0
     app.stop_button.configure(state="disabled")
 
+    # --- Nút Làm Mới Camera (MỚI) ---
+    def _manual_refresh_cameras():
+        camera_logic.restart_cameras(app)
+        refresh_camera_views(app)
+
+    app.refresh_cam_button = ctk.CTkButton(top_frame, text="↻ LÀM MỚI CAMERA", 
+                                    command=_manual_refresh_cameras, 
+                                    fg_color=utils.COLOR_BLUE_ACTION, 
+                                    font=ctk.CTkFont(size=14, weight="bold"))
+    app.refresh_cam_button.grid(row=0, column=1, padx=10, sticky="e")
+
     # --- Cameras Container Frame (để căn giữa) ---
     # Frame này sẽ co lại theo nội dung và được pack vào giữa.
     camera_container = ctk.CTkFrame(app.record_frame, fg_color="transparent")
@@ -193,7 +250,7 @@ def _create_record_frame(app):
     # Frame này dùng để chứa các camera và được đặt vào giữa `camera_container`
     # Lưu reference vào app để hàm refresh có thể truy cập
     app.camera_center_frame = ctk.CTkFrame(camera_container, fg_color="transparent")
-    app.camera_center_frame.pack(expand=True)
+    app.camera_center_frame.pack(expand=True, fill="both") # fill="both" để mở rộng tối đa
 
     # Gọi hàm vẽ giao diện lần đầu
     refresh_camera_views(app)
@@ -410,6 +467,9 @@ def _create_settings_frame(app):
     # Trigger hiển thị ban đầu
     on_type_change()
 
+    # --- Label Thông Báo Trạng Thái (Khởi tạo 1 lần duy nhất) ---
+    status_label = ctk.CTkLabel(app.settings_frame, text="", font=ctk.CTkFont(size=14, weight="bold"))
+
     # --- Nút Lưu ---
     def save_settings():
         new_settings = {
@@ -438,9 +498,17 @@ def _create_settings_frame(app):
             # QUAN TRỌNG: Vẽ lại giao diện camera ngay lập tức
             refresh_camera_views(app)
             
-            ctk.CTkLabel(app.settings_frame, text="Đã lưu và khởi động lại Camera!", text_color="green").pack()
+            # Cập nhật nội dung cho label có sẵn (Thay vì tạo mới)
+            status_label.configure(text="✅ Đã lưu và khởi động lại Camera!", text_color=utils.COLOR_GREEN_SUCCESS)
+            
+            # Tự động xóa thông báo sau 3 giây để giao diện sạch sẽ
+            app.after(3000, lambda: status_label.configure(text=""))
+            
             # Chuyển về màn hình record
             app.after(1500, lambda: select_frame(app, "record"))
 
     ctk.CTkButton(app.settings_frame, text="LƯU CẤU HÌNH & KHỞI ĐỘNG LẠI", 
-                  command=save_settings, fg_color=utils.COLOR_GREEN_SUCCESS, height=50, font=ctk.CTkFont(size=16, weight="bold")).pack(pady=20, padx=20, fill="x")
+                  command=save_settings, fg_color=utils.COLOR_GREEN_SUCCESS, height=50, font=ctk.CTkFont(size=16, weight="bold")).pack(pady=(20, 10), padx=20, fill="x")
+
+    # Đặt label thông báo ở dưới cùng nút Lưu
+    status_label.pack(pady=5)
